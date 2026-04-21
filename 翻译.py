@@ -1,59 +1,72 @@
 import streamlit as st
-import google.generativeai as genai
+from openai import OpenAI  # DeepSeek 兼容 OpenAI 格式
+import pypdfium2 as pdfium
 from PIL import Image
-import io
 
-# --- 1. 页面配置 (高颜值UI设置) ---
-st.set_page_config(page_title="极简翻译官", page_icon="🌐", layout="centered")
+# --- 页面配置 ---
+st.set_page_config(page_title="智能翻译官", page_icon="🇨🇳", layout="wide")
 
+# 注入一点自定义 CSS 让界面更像高级国产软件
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 20px; background-color: #4A90E2; color: white; }
+    .stApp { background-color: #ffffff; }
+    .main-card { border-radius: 15px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🌐 智能多模态翻译器")
-st.caption("支持图片、PDF、文档直接上传翻译")
+st.title("🚀 极简 AI 翻译")
+st.info("基于国产 DeepSeek 模型，国内直接秒开")
 
-# --- 2. 配置 API ---
-# 建议通过 Streamlit 的 Secrets 管理 Key，这里为了方便你测试先留空
-api_key = st.sidebar.text_input("请输入你的 Gemini API Key", type="password")
+# --- 侧边栏配置 ---
+with st.sidebar:
+    st.header("设置")
+    api_key = st.text_input("输入 DeepSeek API Key:", type="password")
+    target_lang = st.selectbox("目标语言", ["中文", "英文", "日语", "韩语"], index=0)
 
+# --- 核心翻译逻辑 ---
+def deepseek_translate(text, target_lang, api_key):
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
+            {"role": "system", "content": f"你是一个专业的翻译官，请将以下内容翻译成{target_lang}。保持原有的语气和排版。"},
+            {"role": "user", "content": text},
+        ],
+        stream=False
+    )
+    return response.choices[0].message.content
+
+# --- 界面交互 ---
 if api_key:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    tab1, tab2 = st.tabs(["📄 文档/PDF 翻译", "✍️ 文本翻译"])
 
-    # --- 3. 文件上传 ---
-    uploaded_file = st.file_uploader("上传图片或 PDF 文件", type=['png', 'jpg', 'jpeg', 'pdf'])
-
-    if uploaded_file is not None:
-        st.info("正在处理文件，请稍候...")
-        
-        try:
-            # 准备翻译指令
-            prompt = "你是一个专业的翻译官。请识别并翻译这个文件中的所有文字。如果是图片，请保持段落逻辑；如果是文档，请确保完整。翻译目标语言为：中文。"
-
-            # 根据文件类型处理
+    with tab1:
+        uploaded_file = st.file_uploader("点击上传 PDF 或图片", type=['pdf', 'png', 'jpg'])
+        if uploaded_file:
+            content = ""
             if uploaded_file.type == "application/pdf":
-                # 处理 PDF
-                content = [{"mime_type": "application/pdf", "data": uploaded_file.read()}]
+                # PDF 解析
+                pdf = pdfium.PdfDocument(uploaded_file)
+                for page in pdf:
+                    textpage = page.get_textpage()
+                    content += textpage.get_text_range()
             else:
-                # 处理图片
-                img = Image.open(uploaded_file)
-                st.image(img, caption='已上传图片', use_container_width=True)
-                content = [prompt, img]
-
-            # 调用 AI
-            if st.button("开始翻译"):
-                with st.spinner('AI 正在深度解析中...'):
-                    response = model.generate_content([prompt, uploaded_file] if uploaded_file.type == "application/pdf" else content)
-                    
+                # 图片直接提醒（因为 OCR 需要额外服务器资源，建议先做 PDF 和文字）
+                st.warning("图片识别建议直接复制文字到‘文本翻译’栏。")
+            
+            if content and st.button("开始解析并翻译"):
+                with st.spinner("DeepSeek 正在思考中..."):
+                    result = deepseek_translate(content[:4000], target_lang, api_key) # 限制长度防止溢出
                     st.subheader("翻译结果")
-                    st.markdown("---")
-                    st.write(response.text)
-                    st.success("翻译完成！")
-        except Exception as e:
-            st.error(f"出错了: {e}")
+                    st.write(result)
+
+    with tab2:
+        input_text = st.text_area("粘贴需要翻译的原文:", height=200)
+        if st.button("立即翻译"):
+            if input_text:
+                with st.spinner("翻译中..."):
+                    result = deepseek_translate(input_text, target_lang, api_key)
+                    st.success("翻译成功！")
+                    st.write(result)
 else:
-    st.warning("请在左侧边栏输入 API Key 以开始使用。")
+    st.warning("👈 请先在左侧输入 DeepSeek API Key 才能开始工作。")
