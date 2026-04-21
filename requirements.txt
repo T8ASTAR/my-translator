@@ -1,3 +1,4 @@
 streamlit
-google-generativeai
+openai
+pypdfium2
 Pillow
